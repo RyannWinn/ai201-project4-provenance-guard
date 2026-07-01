@@ -11,6 +11,7 @@ Endpoints
 
 from __future__ import annotations
 
+import os
 import uuid
 
 from dotenv import load_dotenv
@@ -117,4 +118,7 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # macOS runs AirPlay Receiver on port 5000, which blocks Flask from binding.
+    # Override with e.g. `PORT=5001 python app.py`, or turn AirPlay Receiver off.
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="127.0.0.1", port=port, debug=True)

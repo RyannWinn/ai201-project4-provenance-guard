@@ -20,6 +20,12 @@ cp .env.example .env          # paste your Groq key in here
 .venv/bin/python app.py       # http://127.0.0.1:5000
 ```
 
+On a Mac, port 5000 is usually taken by AirPlay Receiver, which will quietly eat your
+requests. Either turn it off (System Settings → General → AirDrop & Handoff → AirPlay
+Receiver) or run on another port: `PORT=5001 .venv/bin/python app.py`. Also prefer
+`127.0.0.1` over `localhost` in your curls — `localhost` hits IPv6 first, where AirPlay
+lives.
+
 Try it:
 
 ```bash
