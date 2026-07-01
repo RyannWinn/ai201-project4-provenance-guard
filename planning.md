@@ -126,58 +126,57 @@ obvious cases), so the weighted blend stays on that same scale.
 
 ## Architecture
 
-```
-                          SUBMISSION FLOW
-  ┌────────┐  {text, creator_id}   ┌──────────────────────────────┐
-  │ client │ ────────────────────▶ │  POST /submit  (rate-limited) │
-  └────────┘                       └──────────────┬───────────────┘
-                                        raw text  │
-                       ┌──────────────────────────┴───────────────┐
-                       ▼                                           ▼
-              ┌──────────────────┐                     ┌────────────────────┐
-              │ Signal 1: LLM     │  ai_probability     │ Signal 2: stats     │
-              │ (Groq llama-3.3)  │  0..1               │ burstiness+phrases  │
-              └─────────┬────────┘                      │ +casual → 0..1      │
-                        │  llm_score                     └──────────┬─────────┘
-                        │                                style_score│
-                        └───────────────┬───────────────────────────┘
-                                        ▼
-                          ┌──────────────────────────────┐
-                          │ blend: 0.65·llm+0.35·style    │
-                          │        → confidence 0..1       │
-                          └───────────────┬───────────────┘
-                                          │ confidence
-                                          ▼
-                          ┌──────────────────────────────┐
-                          │ pick band + label text        │
-                          └───────────────┬───────────────┘
-                     content_id,          │ attribution, confidence,
-                     scores, status       │ label
-                                          ▼
-                          ┌──────────────────┐        ┌──────────────────────┐
-                          │ audit log (SQLite)│◀──────│ reply to client       │
-                          │ event=submission  │        │ {content_id, label…} │
-                          └──────────────────┘        └──────────────────────┘
+SUBMIT flow:
 
-                            APPEAL FLOW
-  ┌────────┐ {content_id,        ┌──────────────┐  lookup   ┌──────────────────┐
-  │ client │ creator_reasoning}  │ POST /appeal │ ────────▶ │ content store      │
-  └────────┘ ──────────────────▶ └──────┬───────┘           │ status→under_review│
-                                        │                    └─────────┬────────┘
-                                        │ original scores + reasoning   │
-                                        ▼                               ▼
-                          ┌──────────────────┐            ┌──────────────────────┐
-                          │ audit log (SQLite)│            │ reply: "received,     │
-                          │ event=appeal      │            │ under_review"         │
-                          └──────────────────┘            └──────────────────────┘
+```
+POST /submit  {text, creator_id}       <- rate limited (10/min, 100/day)
+    |
+    | text
+    v
+run both signals on it  (detection.analyze)
+    |
+    |-- signal 1: LLM (Groq llama-3.3)          -> llm_score    0..1
+    |-- signal 2: stats                          -> style_score  0..1
+    |     (burstiness + AI phrases + casual tells)
+    |
+    v
+confidence = 0.65*llm + 0.35*style              (fall back to style if LLM down)
+    |
+    v
+which band?   >=0.65 likely_ai / 0.35-0.65 uncertain / <0.35 likely_human
+    |
+    v
+build the label text for that band
+    |
+    v
+save to SQLite (content row + audit entry), then reply
+    -> {content_id, attribution, confidence, label, signals}
 ```
 
-The submission flow: raw text fans out to both signals in `detection.analyze`, the two
-0–1 scores get blended into one confidence, that number picks a band and its label text,
-and the whole record is saved before the reply goes out with the `content_id` and label.
-The appeal flow: the writer sends that `content_id` back with their note, the store flips
-the record to `under_review` and logs an appeal entry with the original call plus the note,
-and the API confirms it.
+APPEAL flow:
+
+```
+POST /appeal  {content_id, creator_reasoning}
+    |
+    v
+look up the record
+    |-- not found? -> 404
+    |
+    v
+set status = under_review
+    |
+    v
+log an appeal entry  (keeps the original scores + the writer's reasoning)
+    |
+    v
+reply {content_id, status: under_review, message}
+```
+
+On submit, the text goes to both signals, the two 0–1 scores get blended into one
+confidence, that number picks a band and its label, and the record is saved before the
+reply goes out. On appeal, the writer sends the `content_id` back with a note, the record
+flips to `under_review`, an appeal entry gets logged with the original call and the note,
+and the API confirms it. Nothing re-runs the detector — a person handles it from there.
 
 ---
 

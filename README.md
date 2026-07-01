@@ -31,15 +31,14 @@ curl -s -X POST http://localhost:5000/submit \
 
 ## How it fits together
 
-Two paths through the system. The full diagram and a step-by-step walk are in
+Two paths through the system. The full breakdown is in
 [planning.md → Architecture](planning.md#architecture). The short version:
 
 ```
-/submit ─▶ Signal 1 (LLM) ─┐
-                            ├─▶ blend (0.65·llm + 0.35·style) ─▶ pick a band ─▶ label ─▶ log ─▶ reply
-/submit ─▶ Signal 2 (style)─┘
+/submit -> run both signals -> blend into one confidence -> pick a band
+              LLM + stats        0.65*llm + 0.35*style      -> label -> log -> reply
 
-/appeal ─▶ mark under_review ─▶ log the appeal ─▶ reply
+/appeal -> find the record -> mark it under_review -> log the appeal -> reply
 ```
 
 The endpoints:
